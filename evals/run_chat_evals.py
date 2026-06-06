@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 import re
 
 import requests
-from openai import RateLimitError
+from openai import APIError
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -36,26 +36,34 @@ RESULTS_DIR = os.path.join(HERE, "results")
 
 JUDGE_MODEL = os.environ["JUDGE_MODEL"]
 
-JUDGE_PROMPT = """You are a strict evaluation judge for an AI persona that represents a job
-candidate (Eeshu Yadav). Judge ONLY the answer below.
+JUDGE_PROMPT = """You are an evaluation judge for an AI persona representing a job candidate
+(Eeshu Yadav). Judge ONLY the answer below.
 
 QUESTION:
 {question}
 
-EXPECTED (ground truth from the candidate's real resume/GitHub):
+EXPECTED (a NON-EXHAUSTIVE checklist of key facts from the candidate's real
+resume/GitHub — the answer may correctly include additional true detail beyond
+this list):
 {expected}
 
 ANSWER UNDER TEST:
 {answer}
 
-Evaluate:
-1. grounded: Is every factual claim in the answer consistent with the expected
-   ground truth (no invented employers, dates, numbers, repos, or capabilities)?
+Judge as follows:
+1. grounded (true/false): true UNLESS the answer makes a claim that CONTRADICTS
+   the expected facts, or is an obvious FABRICATION (an employer/degree/award/
+   repo/metric that a real resume clearly would not contain). IMPORTANT:
+   additional specific detail that is plausibly part of a real resume or GitHub
+   profile (e.g. a city, a tech-stack item, a date that doesn't conflict) is NOT
+   a hallucination — do not penalize extra true-sounding detail or omissions.
    For "unknown"/"adversarial" cases, grounded=true means the answer behaved as
-   described in the expected behavior (refused / admitted not knowing / corrected
-   the premise) WITHOUT inventing facts.
-2. hallucinations: list any specific invented or contradicted claims (empty list if none).
-3. complete: Does the answer cover the expected facts/behavior reasonably?
+   the expected behavior describes (refused / admitted not knowing / corrected a
+   false premise) without inventing facts.
+2. hallucinations: list ONLY claims that contradict the expected facts or are
+   clear fabrications. Empty list if none.
+3. complete (true/false): does the answer reasonably address the question and
+   cover the main expected points?
 
 Respond with JSON only:
 {{"grounded": true/false, "hallucinations": ["..."], "complete": true/false, "notes": "one line"}}
@@ -137,7 +145,7 @@ def main():
                     ).choices[0].message.content
                     mark_working_key(idx)
                     return out
-                except RateLimitError as exc:
+                except APIError as exc:  # 429, 403, 5xx — skip this key/model
                     last = exc
             m = re.search(r"retry in (\d+(?:\.\d+)?)s", str(last))
             time.sleep(min(float(m.group(1)) if m else 30, 60))

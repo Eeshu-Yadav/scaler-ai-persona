@@ -14,7 +14,7 @@ import re
 import time
 
 from django.conf import settings
-from openai import RateLimitError
+from openai import APIError
 
 from shared import calcom
 from shared.persona import CHAT_SYSTEM_PROMPT, current_time_context
@@ -153,7 +153,7 @@ def stream_chat(history: list[dict]):
                     stream = _call(model, cl)
                     mark_working_key(idx)
                     return stream
-                except RateLimitError as exc:
+                except APIError as exc:  # 429, 403, 5xx — skip this key/model
                     last_exc = exc
         m = re.search(r"retry in (\d+(?:\.\d+)?)s", str(last_exc))
         time.sleep(min(float(m.group(1)) if m else 30, 60))
@@ -162,7 +162,7 @@ def stream_chat(history: list[dict]):
                 stream = _call(model_chain[0], cl)
                 mark_working_key(idx)
                 return stream
-            except RateLimitError as exc:
+            except APIError as exc:
                 last_exc = exc
         raise last_exc
 
