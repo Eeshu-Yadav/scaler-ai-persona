@@ -1,0 +1,97 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@page { size: A4; margin: 12mm; }
+* { box-sizing: border-box; }
+body { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+  font-size: 9.3px; line-height: 1.38; color: #15202b; margin: 0; }
+h1 { font-size: 16px; margin: 0 0 1px; }
+h2 { font-size: 10.5px; margin: 9px 0 3px; color: #0b5; border-bottom: 1px solid #dde;
+  padding-bottom: 1px; text-transform: uppercase; letter-spacing: .4px; }
+.sub { color: #667; font-size: 8.4px; margin-bottom: 2px; }
+table { border-collapse: collapse; width: 100%; margin: 2px 0; font-size: 8.6px; }
+td, th { border: 1px solid #dde; padding: 2px 5px; text-align: left; }
+th { background: #f4f6f8; }
+.kpis { display: flex; gap: 6px; margin: 4px 0; }
+.kpi { flex: 1; border: 1px solid #dde; border-radius: 5px; padding: 4px 6px; background: #fafbfc; }
+.kpi b { display: block; font-size: 15px; color: #0a6; }
+.kpi span { font-size: 7.8px; color: #667; }
+ul { margin: 2px 0; padding-left: 14px; }
+li { margin: 1px 0; }
+.two { display: flex; gap: 12px; }
+.two > div { flex: 1; }
+code { background: #f0f2f4; padding: 0 3px; border-radius: 3px; }
+</style></head><body>
+
+<h1>AI Persona — Evals Report</h1>
+<div class="sub">Eeshu Yadav · Voice +1 (270) 612-3958 · Chat eeshu-persona-chat.onrender.com · Repo github.com/Eeshu-Yadav/scaler-ai-persona ·
+Judge model: gemini-2.5-flash · n=20 cases</div>
+
+<div class="kpis">
+  <div class="kpi"><b>95%</b><span>Groundedness rate</span></div>
+  <div class="kpi"><b>5%</b><span>Hallucination rate</span></div>
+  <div class="kpi"><b>0.685</b><span>Retrieval precision</span></div>
+  <div class="kpi"><b>0.962</b><span>Retrieval recall</span></div>
+  <div class="kpi"><b>17.29s</b><span>Chat TTFB (deployed)</span></div>
+</div>
+
+<h2>1 · Voice quality</h2>
+<b>First-response latency.</b> Component benchmark not run in this pass; end-to-end first-response latency measured by stopwatch on live calls (see voice_test_log.md). Architecture targets &lt;2s via streaming STT, preemptive generation, and Flash-tier TTS (~75ms).<br>
+<b>Transcription accuracy.</b> Deepgram Nova-3 streaming STT; word-accuracy spot-checked
+against LiveKit session transcripts on live calls (logged in voice_test_log.md).<br>
+<b>Task completion (booking).</b> Booking verified end-to-end against the real Cal.com
+calendar (chat path confirmed a live booking; voice path uses the same booking tool).
+
+<h2>2 · Chat groundedness</h2>
+<div class="two">
+<div>
+Golden set of 20 cases run end-to-end against the <b>deployed</b> backend,
+graded by an LLM judge (gemini-2.5-flash) instructed to flag only contradictions/
+fabrications (extra true detail allowed). Retrieval precision/recall computed from the
+expected-source labels per question over a 120-chunk corpus.
+<ul>
+<li><b>Groundedness:</b> 95% · <b>Hallucination:</b> 5%</li>
+<li><b>Retrieval P/R:</b> 0.685 / 0.962</li>
+<li>Non-grounded cases flagged: book-1.</li>
+</ul>
+</div>
+<div>
+<table><tr><th>Case type</th><th>n</th><th>Grounded</th></tr><tr><td>adversarial</td><td>4</td><td>4/4</td></tr><tr><td>booking</td><td>1</td><td>0/1</td></tr><tr><td>factual</td><td>12</td><td>12/12</td></tr><tr><td>unknown</td><td>3</td><td>3/3</td></tr></table>
+</div>
+</div>
+
+<h2>3 · Three failure modes → root cause → fix</h2>
+<ul>
+<li><b>Booking "time in the past".</b> The LLM resolved "tomorrow" against its training
+prior with no current date → built a stale ISO timestamp. <i>Fix:</i> inject current IST
+datetime into the prompt + force <code>start_iso</code> to be copied verbatim from the
+availability tool. Re-tested: booking confirmed on Cal.com.</li>
+<li><b>Empty answers on Gemini (HTTP 400 mid-stream).</b> Gemini's OpenAI-compat endpoint
+streams parallel tool-calls with <code>index=None</code>; an index-keyed accumulator
+collapsed them into unparseable args. <i>Fix:</i> key the accumulator by call id when
+index is absent; guard empty-query embeds. Re-tested: multi-search answers work.</li>
+<li><b>Mid-session quota exhaustion (free tier).</b> Single key/model dependency 429'd.
+<i>Fix:</i> round-robin key rotation (cycles from last-working key, wraps) × model
+fallback (flash → flash-lite → 2.0-flash), skipping any failing key (429/403/5xx).
+Re-tested: serving continues after a key's daily bucket is exhausted.</li>
+</ul>
+
+<h2>4 · A conscious tradeoff</h2>
+<b>In-memory vector store over a managed vector DB.</b> The corpus is only 120
+chunks (one résumé + ~20 repos), so embeddings are precomputed into a JSON file and loaded
+into a NumPy matrix at boot: retrieval is a single cosine matvec (&lt;5ms), zero infra,
+zero per-query cost, and the voice agent does RAG <i>in-process</i> — removing an HTTP hop
+from the latency budget. The cost: refreshing the corpus needs a redeploy and there's no
+horizontal-scaling story for retrieval — both acceptable for a single-person corpus that
+changes at most weekly. (Related: a Gemini-only stack on the free tier traded a little
+latency, via key/model fallback, for ~$0 running cost — see repo cost table.)
+
+<h2>5 · With two more weeks</h2>
+<ul>
+<li><b>Voice:</b> clone Eeshu's real voice (ElevenLabs); speculative RAG prefetch from
+interim transcripts; warm-pool the Cloud agent to kill cold-start on first call.</li>
+<li><b>RAG:</b> hybrid BM25 + dense retrieval with a reranker; nightly GitHub
+re-ingestion; per-claim inline citations rendered in chat.</li>
+<li><b>Evals:</b> CI-gated eval run on every prompt change; an automated voice-eval rig
+(TTS-generated caller + scripted dialogues over SIP) to replace manual call logs.</li>
+</ul>
+
+</body></html>

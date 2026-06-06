@@ -3,11 +3,29 @@
 An AI persona of me that you can **call**, **chat with**, and use to **book a
 real interview** on my calendar — end to end, no human in the loop.
 
-- 📞 **Voice agent:** call **+1 (270) 612-3958**
+- 📞 **Voice agent (phone):** call **+1 (270) 612-3958**
+- 🎙️ **Voice agent (web):** the **"Talk to the agent"** button on the chat site — browser mic over WebRTC into the same agent, callable instantly from anywhere (no dialing)
 - 💬 **Chat:** https://eeshu-persona-chat.onrender.com
 - 📄 **Eval report:** [`evals/report_template.md`](evals/report_template.md) (PDF in submission)
 
 > API: https://eeshu-persona-api.onrender.com/api/health
+
+### A note on the phone number (and the web-voice option)
+
+The dialable number is a **US (+1) Twilio number**, which is the standard, expected
+setup (Twilio is the assignment's first stack hint) and routes PSTN → Twilio Elastic
+SIP Trunk → LiveKit Cloud SIP → the agent. **Why not a +91 Indian number?** Indian DIDs
+are TRAI-regulated — every provider (Twilio, Plivo, Exotel, Knowlarity, Telnyx) requires
+KYC (ID/address proof) and 1–3 day approval, and the number carries a monthly rental;
+there is no instant or free Indian programmable number. Calling the US number from India
+therefore needs international dialing enabled (or a VoIP app like Skype).
+
+To make the voice agent **trivially reachable from India — free, instant, no KYC** — the
+chat site includes a **web-voice button**: it mints a LiveKit token, dispatches the same
+agent into a room, and connects the browser mic over WebRTC. Same Deepgram → Gemini →
+ElevenLabs pipeline, same RAG and Cal.com booking, just without the PSTN leg. So the
+project satisfies the literal "phone number we can call" requirement *and* is instantly
+demoable from any device.
 
 Both surfaces are RAG-grounded over my **real resume** and **live GitHub data**
 (repo READMEs, languages, commit history, merged PRs across OpenWISP/KMesh),

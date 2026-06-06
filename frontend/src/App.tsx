@@ -8,6 +8,7 @@ import {
   Sparkles,
 } from "lucide-react"
 
+import VoiceCall from "@/VoiceCall"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -137,13 +138,7 @@ export function App() {
             calendar
           </p>
         </div>
-        <Badge variant="outline" className="hidden gap-1.5 sm:flex">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-          </span>
-          Live
-        </Badge>
+        <VoiceCall />
         <a
           href="https://github.com/Eeshu-Yadav"
           target="_blank"
