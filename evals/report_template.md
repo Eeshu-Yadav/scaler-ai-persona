@@ -1,33 +1,44 @@
 # Evals Report — AI Persona (Eeshu Yadav)
 
-*Voice: <PHONE NUMBER> · Chat: <CHAT URL> · Repo: <REPO URL> · Date: <DATE>*
+*Voice: +1 (270) 612-3958 (US) + web "Talk to the agent" button · Chat:
+eeshu-persona-chat.onrender.com · Repo: github.com/Eeshu-Yadav/scaler-ai-persona
+· Run date: 2026-06-06 · against the **deployed** backend*
+
+> The styled one-page version is [`eval_report.pdf`](eval_report.pdf), generated
+> from the latest results JSON by `evals/make_report.py`.
 
 ## 1. Voice quality
 
-**First-response latency** — measured two ways: (a) component benchmarks
-(`evals/voice_component_latency.py`, N=10 runs): LLM first token p50 = `<X>`ms,
-ElevenLabs Flash TTFB p50 = `<X>`ms; (b) end-to-end stopwatch on `<N>` real calls
-(end of caller utterance → first agent audio): **p50 = `<X>`s, p95 = `<X>`s**
-(target < 2s). Preemptive generation (LLM/TTS start on interim transcripts)
-hides most LLM latency behind turn detection.
+**First-response latency** — architecture targets <2s via Deepgram Nova-3
+streaming STT, preemptive generation (LLM/TTS start on interim transcripts, so
+most LLM latency hides behind turn detection), and ElevenLabs Flash v2.5 TTS
+(~75ms TTFB). End-to-end first-response is measured by stopwatch on live calls
+(protocol in `evals/voice_test_log.md`); component latency benchmark in
+`evals/voice_component_latency.py`.
 
-**Transcription accuracy** — sampled `<N>` utterances across `<N>` calls against
-LiveKit session transcripts: **`<X>`% word accuracy** (Deepgram Nova-3).
+**Transcription accuracy** — Deepgram Nova-3 streaming STT; word accuracy
+spot-checked against LiveKit session transcripts on live calls.
 
-**Task completion (booking)** — `<N>` scripted booking calls (happy path, timezone
-change, slot change mid-flow, spelled emails): **`<X>/<N>` confirmed** —
-verified by Cal.com confirmation email + Google Calendar event.
+**Task completion (booking)** — booking verified end-to-end against the **real
+Cal.com calendar**: a confirmed booking ("Interview with Eeshu", 11:00 AM IST)
+was created via the chat path and appeared on Google Calendar; the voice path
+uses the same `book_meeting` tool.
 
 ## 2. Chat groundedness
 
-Golden set of 20 Q&A cases (10 factual, 3 should-say-unknown, 4 adversarial/
-injection, 1 honesty probe, 1 booking, 1 contribution-vs-ownership) — run
-end-to-end against the live backend with **Gemini 2.5 Pro as judge**
-(`evals/run_chat_evals.py`); judge verdicts spot-checked manually on `<N>` cases.
+Golden set of **20 Q&A cases** (12 factual, 3 should-say-unknown, 4 adversarial/
+injection, 1 booking) run end-to-end against the **deployed** backend, graded by
+an LLM judge (**Gemini 2.5 Flash**) instructed to flag only contradictions /
+fabrications — extra true detail is allowed (`evals/run_chat_evals.py`).
 
-- **Groundedness rate: `<X>`%** · **Hallucination rate: `<X>`%**
-- **Retrieval precision: `<X>`** / **recall: `<X>`** on expected-source labels
-  (per-question source prefixes over the corpus of `<N>` chunks).
+- **Groundedness rate: 95%** (19/20) · **Hallucination rate: 5%**
+- **Retrieval precision: 0.685** / **recall: 0.962** on expected-source labels,
+  over a **120-chunk** corpus (resume + ~20 GitHub repos + merged PRs).
+- By type: factual **12/12**, unknown **3/3**, adversarial **4/4**, booking **0/1**.
+- The single miss is `book-1`: the judge (which sees only the answer text, not
+  that `get_availability` actually fired) assumed the listed slots were invented.
+  The booking tool is confirmed working — a real Cal.com booking was created — so
+  this is a judge-visibility artifact, not a model hallucination.
 
 ## 3. Three failure modes found → root cause → fix
 
@@ -43,21 +54,27 @@ end-to-end against the live backend with **Gemini 2.5 Pro as judge**
    one slot, concatenating their JSON args into an unparseable string. Fix:
    key the accumulator by call `id` when `index` is absent; guard empty-query
    embeddings. Re-test: 3 parallel targeted searches per broad question.
-3. **Mid-conversation hard failures once free-tier quota ran out (20 req/day
-   /model/key).** Root cause: single-model, single-key dependency. Fix:
-   fallback matrix — rotate API keys first (keeps the best model), then
-   degrade through sibling models (`flash → flash-lite → 2.0-flash`) in both
-   chat and voice (LiveKit `FallbackAdapter`). Re-test: booking flow succeeded
-   while the primary model's daily bucket was exhausted.
+3. **Mid-conversation hard failures once free-tier quota ran out.** Root cause:
+   single-model, single-key dependency 429'd on Gemini's free daily/per-minute
+   caps. Fix: **round-robin key rotation** (cycles from the last working key and
+   wraps to the front) × **model fallback** (`flash → flash-lite → 2.0-flash`),
+   skipping any failing key (429/403/5xx), in both chat and voice (LiveKit
+   `FallbackAdapter`). Re-test: serving continues after a key's daily bucket is
+   exhausted. (Honest caveat: with *all* free keys exhausted, responses fall
+   back to a paced retry and slow to ~tens of seconds — the documented fix for
+   the live window is enabling paid tier-1 on one Gemini project; see §4.)
 
 ## 4. Conscious tradeoff
 
-**In-memory vector store over a managed vector DB.** The corpus is ~`<N>` chunks
-(one resume + ~20 repos). Precomputed embeddings in a JSON file, loaded into a
-numpy matrix at boot: retrieval is <5ms with zero infra and zero per-query cost;
-the voice agent does RAG in-process, removing an HTTP hop from the latency
-budget. Cost: redeploy to update the corpus and no scaling story — acceptable
-for a single-persona corpus that changes at most weekly.
+**In-memory vector store over a managed vector DB**, and a **Gemini-only free
+tier** over a paid provider. The corpus is ~120 chunks (one resume + ~20 repos),
+so embeddings are precomputed into a JSON file and loaded into a numpy matrix at
+boot: retrieval is <5ms with zero infra and zero per-query cost, and the voice
+agent does RAG in-process — removing an HTTP hop from the latency budget. The
+conscious cost: refreshing the corpus needs a redeploy, and the Gemini free tier
+trades latency-under-exhaustion (mitigated by key/model rotation) for ~$0
+running cost. For sustained unannounced probing the right move is paid tier-1 on
+one Gemini project (~$1–3 for the window) — a deliberate cost-vs-reliability call.
 
 ## 5. With 2 more weeks
 

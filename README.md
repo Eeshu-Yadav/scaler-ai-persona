@@ -6,9 +6,23 @@ real interview** on my calendar — end to end, no human in the loop.
 - 📞 **Voice agent (phone):** call **+1 (270) 612-3958**
 - 🎙️ **Voice agent (web):** the **"Talk to the agent"** button on the chat site — browser mic over WebRTC into the same agent, callable instantly from anywhere (no dialing)
 - 💬 **Chat:** https://eeshu-persona-chat.onrender.com
-- 📄 **Eval report:** [`evals/report_template.md`](evals/report_template.md) (PDF in submission)
+- 📄 **Eval report:** [`evals/report_template.md`](evals/report_template.md) · one-page PDF: [`evals/eval_report.pdf`](evals/eval_report.pdf)
 
 > API: https://eeshu-persona-api.onrender.com/api/health
+
+### Eval results (20-case golden set, deployed backend, Gemini-2.5-Flash judge)
+
+| Metric | Result |
+|---|---|
+| Groundedness rate | **95%** (19/20) |
+| Hallucination rate | **5%** |
+| Retrieval precision / recall | **0.685 / 0.962** |
+| By type | factual 12/12 · unknown 3/3 · adversarial 4/4 · booking 0/1\* |
+
+\*The one miss (`book-1`) is a judge-visibility artifact — the judge sees only the
+answer text, not that `get_availability` fired, so it assumed the listed slots
+were invented. Booking is confirmed working (a real Cal.com booking was created).
+Reproduce: `python evals/run_chat_evals.py --api <backend-url>`.
 
 ### A note on the phone number (and the web-voice option)
 
