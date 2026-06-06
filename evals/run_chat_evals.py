@@ -15,8 +15,10 @@ import sys
 import time
 from datetime import datetime, timezone
 
+import re
+
 import requests
-from openai import OpenAI
+from openai import RateLimitError
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -116,12 +118,47 @@ def main():
         keep = set(args.only.split(","))
         cases = [c for c in cases if c["id"] in keep]
 
-    judge = OpenAI()
+    from shared.provider import gemini_clients_cycled, mark_working_key
+
+    judge_models = [JUDGE_MODEL, "gemini-2.5-flash-lite", "gemini-2.0-flash"]
+
+    def judge_call(prompt: str) -> str:
+        """Per-model, per-key quota — cycle keys from the last working one
+        (round-robin, wraps), pause once on a minute-quota wall."""
+        last = None
+        for model in judge_models:
+            for idx, cl in gemini_clients_cycled():
+                try:
+                    out = cl.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": prompt}],
+                        response_format={"type": "json_object"},
+                        temperature=0,
+                    ).choices[0].message.content
+                    mark_working_key(idx)
+                    return out
+                except RateLimitError as exc:
+                    last = exc
+            m = re.search(r"retry in (\d+(?:\.\d+)?)s", str(last))
+            time.sleep(min(float(m.group(1)) if m else 30, 60))
+        raise last
+
+    def ask_with_wake(api, question):
+        """Render free tier cold-starts with a 502; retry briefly."""
+        for attempt in range(4):
+            try:
+                return ask_backend(api, question)
+            except requests.HTTPError as exc:
+                if attempt < 3 and exc.response is not None and exc.response.status_code in (502, 503):
+                    time.sleep(8)
+                    continue
+                raise
+
     results = []
     for case in cases:
         print(f"[{case['id']}] {case['question'][:70]}...", flush=True)
         try:
-            answer, sources, ttfb = ask_backend(args.api, case["question"])
+            answer, sources, ttfb = ask_with_wake(args.api, case["question"])
         except Exception as exc:
             print(f"  !! backend error: {exc}")
             results.append({"id": case["id"], "error": str(exc)})
@@ -130,17 +167,11 @@ def main():
         expected = json.dumps(
             case.get("expected_facts") or case.get("expected_behavior"), ensure_ascii=False
         )
-        verdict_raw = judge.chat.completions.create(
-            model=JUDGE_MODEL,
-            messages=[{
-                "role": "user",
-                "content": JUDGE_PROMPT.format(
-                    question=case["question"], expected=expected, answer=answer
-                ),
-            }],
-            response_format={"type": "json_object"},
-            temperature=0,
-        ).choices[0].message.content
+        verdict_raw = judge_call(
+            JUDGE_PROMPT.format(
+                question=case["question"], expected=expected, answer=answer
+            )
+        )
         verdict = json.loads(verdict_raw)
 
         precision, recall = retrieval_pr(sources, case.get("expected_sources", []))

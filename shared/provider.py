@@ -7,13 +7,23 @@ usage). Call configure_provider() once at every entry point after load_dotenv().
 """
 
 import os
+import threading
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+# Round-robin cursor over the API keys. Persisted at module level so it
+# survives across requests in a long-running worker: once a key is found
+# working, the next request starts there instead of re-hitting exhausted
+# keys from the top; when that key exhausts we advance and wrap to the front
+# (where a key's daily quota may have since reset).
+_key_cursor = 0
+_key_lock = threading.Lock()
 
 MODEL_DEFAULTS = {
     "CHAT_MODEL": "gemini-2.5-flash",
     "VOICE_MODEL": "gemini-2.5-flash",
-    "JUDGE_MODEL": "gemini-2.5-pro",
+    # gemini-2.5-pro has zero free-tier quota; flash is the judge on free tier.
+    "JUDGE_MODEL": "gemini-2.5-flash",
     "EMBEDDING_MODEL": "gemini-embedding-001",
     # Free-tier daily quotas are per-model — when the primary's bucket is
     # exhausted, fall through these (comma-separated) instead of going down.
@@ -31,6 +41,28 @@ def gemini_api_keys() -> list[str]:
         keys.append(os.environ[f"GEMINI_API_KEY_{i}"].strip())
         i += 1
     return [k for k in keys if k]
+
+
+def gemini_clients_cycled():
+    """Yield (index, OpenAI client) for every key, ordered starting from the
+    rotating cursor and wrapping around — so exhausted keys aren't retried
+    first. Call mark_working_key(index) after a successful request to park the
+    cursor on the live key."""
+    from openai import OpenAI
+
+    keys = gemini_api_keys()
+    with _key_lock:
+        start = _key_cursor % len(keys)
+    order = [(start + i) % len(keys) for i in range(len(keys))]
+    return [
+        (idx, OpenAI(api_key=keys[idx], base_url=GEMINI_BASE_URL)) for idx in order
+    ]
+
+
+def mark_working_key(index: int) -> None:
+    global _key_cursor
+    with _key_lock:
+        _key_cursor = index
 
 
 def configure_provider() -> str:

@@ -14,7 +14,7 @@ import re
 import time
 
 from django.conf import settings
-from openai import OpenAI, RateLimitError
+from openai import RateLimitError
 
 from shared import calcom
 from shared.persona import CHAT_SYSTEM_PROMPT, current_time_context
@@ -119,7 +119,6 @@ def _run_tool(name: str, args: dict) -> tuple[str, list | None]:
 
 def stream_chat(history: list[dict]):
     """history: [{role: user|assistant, content: str}, ...] — yields SSE event dicts."""
-    client = OpenAI()
     messages = [
         {"role": "system", "content": CHAT_SYSTEM_PROMPT + current_time_context()}
     ]
@@ -129,46 +128,43 @@ def stream_chat(history: list[dict]):
 
     import os
 
-    from shared.provider import GEMINI_BASE_URL, gemini_api_keys
+    from shared.provider import gemini_clients_cycled, mark_working_key
 
     model_chain = [settings.CHAT_MODEL] + [
         m.strip() for m in os.environ.get("FALLBACK_MODELS", "").split(",") if m.strip()
     ]
-    clients = [
-        OpenAI(api_key=k, base_url=GEMINI_BASE_URL) for k in gemini_api_keys()
-    ] or [client]
+
+    def _call(model, cl):
+        return cl.chat.completions.create(
+            model=model, messages=messages, tools=TOOLS,
+            stream=True, temperature=0.4, max_tokens=1200,
+        )
 
     def create_stream():
-        """Free-tier quotas are per-model AND per-key. Walk the matrix: for each
-        model try every key (key rotation keeps the best model alive longest),
-        then downgrade to the next free model. Minute-quota 429s get one paced
-        retry at the end instead of stalling every combo."""
+        """Free-tier quotas are per-model AND per-key. For each model, cycle
+        through the keys starting from the last working one (round-robin, wraps
+        to the front); park the cursor on whichever key answers so the next
+        request skips the exhausted ones. If the whole matrix is 429, wait once
+        (per-minute quota) and retry from the live cursor."""
         last_exc = None
         for model in model_chain:
-            for cl in clients:
+            for idx, cl in gemini_clients_cycled():
                 try:
-                    return cl.chat.completions.create(
-                        model=model,
-                        messages=messages,
-                        tools=TOOLS,
-                        stream=True,
-                        temperature=0.4,
-                        max_tokens=1200,
-                    )
+                    stream = _call(model, cl)
+                    mark_working_key(idx)
+                    return stream
                 except RateLimitError as exc:
                     last_exc = exc
-        # Whole matrix rate-limited — likely per-minute quotas; wait once and
-        # retry the primary combo before giving up.
         m = re.search(r"retry in (\d+(?:\.\d+)?)s", str(last_exc))
         time.sleep(min(float(m.group(1)) if m else 30, 60))
-        return clients[0].chat.completions.create(
-            model=model_chain[0],
-            messages=messages,
-            tools=TOOLS,
-            stream=True,
-            temperature=0.4,
-            max_tokens=1200,
-        )
+        for idx, cl in gemini_clients_cycled():
+            try:
+                stream = _call(model_chain[0], cl)
+                mark_working_key(idx)
+                return stream
+            except RateLimitError as exc:
+                last_exc = exc
+        raise last_exc
 
     all_sources: list[dict] = []
     try:
