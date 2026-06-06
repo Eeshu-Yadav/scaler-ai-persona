@@ -49,7 +49,12 @@ COPY . .
 
 # Pre-download any ML models or files the agent needs
 # This ensures the container is ready to run immediately without downloading
-# dependencies at runtime, which improves startup time and reliability
+# dependencies at runtime, which improves startup time and reliability.
+# HF_HOME must live under /app: this build stage runs as root (so the default
+# cache would land in /root/.cache and be LOST), while the production stage
+# copies only /app and runs as appuser. Without this pin the turn detector
+# dies at runtime with 'Could not find file "languages.json"'.
+ENV HF_HOME=/app/.cache/huggingface
 RUN python "voice-agent/agent.py" download-files
 
 # --- Production stage ---
@@ -73,8 +78,9 @@ WORKDIR /app
 # This avoids expensive recursive chown and excludes build tools from the final image
 COPY --from=build --chown=appuser:appuser /app /app
 
-# Activate virtual environment
+# Activate virtual environment + point HF at the baked-in model cache
 ENV PATH="/app/.venv/bin:$PATH"
+ENV HF_HOME=/app/.cache/huggingface
 
 # Switch to the non-privileged user for all subsequent operations
 # This improves security by not running as root

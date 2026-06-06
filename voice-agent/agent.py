@@ -171,12 +171,21 @@ async def entrypoint(ctx: JobContext) -> None:
         ]
     )
 
+    # EOU turn-detector model must be baked into the image (download-files +
+    # HF_HOME pinned under /app). If it's ever missing, degrade to VAD-based
+    # turn detection instead of crashing the whole job.
+    try:
+        turn_detection = EnglishModel()
+    except Exception as exc:
+        logger.warning("turn-detector model unavailable (%s) — falling back to VAD", exc)
+        turn_detection = "vad"
+
     session = AgentSession(
         stt=deepgram.STT(model="nova-3", language="en"),
         llm=llm,
         tts=tts,
         vad=silero.VAD.load(),
-        turn_detection=EnglishModel(),
+        turn_detection=turn_detection,
         # Start LLM+TTS on interim transcripts; discard if the user keeps talking.
         preemptive_generation=True,
         allow_interruptions=True,
