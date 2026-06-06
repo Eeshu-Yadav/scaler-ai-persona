@@ -49,11 +49,13 @@ TIME_ZONE = "UTC"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # CORS — chat frontend origin(s)
-_origins = os.environ.get("ALLOWED_ORIGINS", "")
-if _origins:
+_origins = os.environ.get("ALLOWED_ORIGINS", "").strip()
+if _origins and _origins != "*":
+    # django-cors-headers needs scheme://host entries; "*" is NOT valid here —
+    # it requires CORS_ALLOW_ALL_ORIGINS instead (handled in the else branch).
     CORS_ALLOWED_ORIGINS = [o.strip() for o in _origins.split(",") if o.strip()]
 else:
-    CORS_ALLOW_ALL_ORIGINS = True  # dev fallback
+    CORS_ALLOW_ALL_ORIGINS = True  # no credentials/cookies used, so safe
 
 REST_FRAMEWORK = {
     "UNAUTHENTICATED_USER": None,
