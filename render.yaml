@@ -1,0 +1,48 @@
+# Render Blueprint — backend (Django API) + frontend (static React).
+# Secrets (sync:false) are set once in the Render dashboard or via:
+#   render services env set ...  (after the blueprint creates the services)
+services:
+  - type: web
+    name: eeshu-persona-api
+    runtime: python
+    plan: free
+    region: singapore
+    rootDir: .
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: >-
+      gunicorn config.wsgi:application
+      --chdir backend --pythonpath .
+      --bind 0.0.0.0:$PORT --workers 2 --threads 8 --timeout 120
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: "*"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY_1
+        sync: false
+      - key: CALCOM_API_KEY
+        sync: false
+      - key: CALCOM_EVENT_TYPE_ID
+        sync: false
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        sync: false   # set to the deployed frontend URL after first deploy
+
+  - type: web
+    name: eeshu-persona-chat
+    runtime: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false   # set to the eeshu-persona-api URL
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

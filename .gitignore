@@ -1,0 +1,25 @@
+# env / secrets
+.env
+*.env
+!.env.example
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+db.sqlite3
+staticfiles/
+
+# node
+node_modules/
+dist/
+.vite/
+
+# eval outputs
+evals/results/
+
+# misc
+.DS_Store
+*.log
+Copy of AI Engineer Screening Assignment.md
