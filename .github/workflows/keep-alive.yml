@@ -1,9 +1,11 @@
 name: keep-alive
 
-# Pings the Render backend so the free instance never spins down (which would
-# add a ~50s cold start to the first unannounced call/chat). Public-repo Actions
-# minutes are free. GitHub may delay scheduled runs a few minutes under load —
-# a 10-min cadence comfortably stays inside Render's ~15-min idle window.
+# Pings the Render backend so the free instance stays warm (a cold start adds
+# ~50-90s to the first unannounced call/chat). GitHub's scheduled runs are
+# throttled/delayed on free tier, so a ping may itself land on a cold instance —
+# the long per-attempt timeout lets it WAIT OUT the cold start (which also warms
+# the server) instead of timing out and going red. Every ping that returns 200
+# resets Render's idle timer.
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -13,13 +15,13 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping backend health
+      - name: Ping backend health (cold-start tolerant)
         run: |
-          for i in 1 2 3; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
+          for i in 1 2 3 4; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 150 \
               https://eeshu-persona-api.onrender.com/api/health)
             echo "attempt $i: HTTP $code"
             [ "$code" = "200" ] && exit 0
-            sleep 10
+            sleep 20
           done
-          echo "backend did not return 200"; exit 1
+          echo "backend did not return 200 after cold-start waits"; exit 1
