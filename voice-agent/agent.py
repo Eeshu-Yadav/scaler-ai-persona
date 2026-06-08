@@ -203,7 +203,34 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
 
+def _start_backend_keepalive() -> None:
+    """The LiveKit Cloud worker runs 24/7, so use it as a reliable external
+    pinger that keeps the Render free-tier backend from spinning down (a cold
+    start would add ~50s to the first unannounced chat/call). Independent of —
+    and redundant with — the GitHub Actions cron."""
+    import threading
+    import time
+
+    import requests
+
+    url = os.environ.get(
+        "KEEPALIVE_URL", "https://eeshu-persona-api.onrender.com/api/health"
+    )
+
+    def loop():
+        while True:
+            try:
+                requests.get(url, timeout=120)
+            except Exception:
+                pass
+            time.sleep(240)  # every 4 min — well inside Render's 15-min idle window
+
+    threading.Thread(target=loop, daemon=True).start()
+    logger.info("backend keep-alive pinger started → %s", url)
+
+
 if __name__ == "__main__":
+    _start_backend_keepalive()
     agents.cli.run_app(
         WorkerOptions(entrypoint_fnc=entrypoint, agent_name=AGENT_NAME)
     )
