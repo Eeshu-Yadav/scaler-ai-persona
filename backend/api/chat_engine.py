@@ -135,10 +135,16 @@ def stream_chat(history: list[dict]):
     ]
 
     def _call(model, cl):
-        return cl.chat.completions.create(
+        kwargs = dict(
             model=model, messages=messages, tools=TOOLS,
             stream=True, temperature=0.4, max_tokens=1200,
         )
+        # Gemini 2.5 models "think" by default, adding ~1s/call. These answers
+        # just synthesize retrieved text, so minimal reasoning is plenty and
+        # noticeably faster. (2.0-flash has no thinking and rejects the param.)
+        if model.startswith("gemini-2.5"):
+            kwargs["reasoning_effort"] = "low"
+        return cl.chat.completions.create(**kwargs)
 
     def create_stream():
         """Free-tier quotas are per-model AND per-key. For each model, cycle
