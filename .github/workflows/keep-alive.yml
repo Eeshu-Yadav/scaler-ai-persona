@@ -8,7 +8,7 @@ name: keep-alive
 # resets Render's idle timer.
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"  # every 5 min; GitHub throttles cron, so we over-schedule
   workflow_dispatch: {}
 
 jobs:
