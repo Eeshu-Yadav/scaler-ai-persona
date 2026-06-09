@@ -11,7 +11,7 @@ import {
 import VoiceCall from "@/VoiceCall"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Button, buttonVariants } from "@/components/ui/button"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
@@ -167,10 +167,90 @@ export function App() {
   }
 
   return (
-    <div className="app-bg text-foreground flex h-dvh flex-col">
-      <div className="mx-auto flex h-full w-full max-w-3xl flex-col">
-        {/* Header */}
-        <header className="border-border/60 flex items-center gap-3 border-b px-5 py-3.5 backdrop-blur-sm">
+    <div className="app-bg text-foreground flex h-dvh w-full overflow-hidden">
+      {/* ---- Left: profile / context sidebar (desktop) ---- */}
+      <aside className="border-border/60 hidden w-[330px] shrink-0 flex-col border-r px-6 py-7 lg:flex">
+        <div className="flex items-center gap-3.5">
+          <div className="from-primary to-chart-2 rounded-full bg-gradient-to-br p-[2px]">
+            <Avatar className="border-background h-14 w-14 border-2">
+              <AvatarFallback className="bg-card text-foreground text-base font-semibold">
+                EY
+              </AvatarFallback>
+            </Avatar>
+          </div>
+          <div>
+            <h1 className="text-base font-semibold tracking-tight">Eeshu Yadav</h1>
+            <p className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              </span>
+              AI Persona · live
+            </p>
+          </div>
+        </div>
+
+        <p className="text-muted-foreground mt-5 text-[13px] leading-relaxed">
+          AI Engineer — RAG pipelines, LLM apps, and production ML. Ask his AI
+          rep anything, or book a real interview.
+        </p>
+
+        <div className="mt-4 flex flex-wrap gap-1.5">
+          {[
+            "GSoC '26 · OpenWISP",
+            "2× SIH National Winner",
+            "CNCF · KMesh (Rust)",
+            "B.Tech CSE · 2026",
+          ].map((s) => (
+            <Badge key={s} variant="secondary" className="text-[10.5px] font-normal">
+              {s}
+            </Badge>
+          ))}
+        </div>
+
+        <div className="mt-6 space-y-2">
+          <VoiceCall />
+          <a
+            href="tel:+12706123958"
+            className="text-muted-foreground hover:text-foreground flex items-center gap-2 text-xs transition-colors"
+          >
+            <Phone className="h-3.5 w-3.5" /> +1 270-612-3958
+          </a>
+        </div>
+
+        <div className="mt-7 min-h-0 flex-1">
+          <p className="text-muted-foreground/70 mb-2 text-[10px] font-medium tracking-wide uppercase">
+            Suggested questions
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {SUGGESTIONS.map((s) => (
+              <button
+                key={s}
+                onClick={() => send(s)}
+                disabled={busy}
+                className="group border-border/60 bg-card/40 hover:border-primary/50 hover:bg-card flex items-start gap-2 rounded-xl border px-3 py-2 text-left text-[12.5px] leading-snug transition-all hover:-translate-y-px disabled:opacity-50"
+              >
+                <Sparkles className="text-primary/60 group-hover:text-primary mt-0.5 h-3 w-3 shrink-0 transition-colors" />
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <a
+          href="https://github.com/Eeshu-Yadav"
+          target="_blank"
+          rel="noreferrer"
+          className="text-muted-foreground hover:text-foreground mt-6 inline-flex items-center gap-2 text-xs transition-colors"
+        >
+          <GithubIcon className="h-4 w-4" /> github.com/Eeshu-Yadav
+        </a>
+      </aside>
+
+      {/* ---- Right: chat ---- */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Mobile header (sidebar is hidden on small screens) */}
+        <header className="border-border/60 flex items-center gap-3 border-b px-4 py-3 lg:hidden">
           <div className="from-primary to-chart-2 rounded-full bg-gradient-to-br p-[1.5px]">
             <Avatar className="border-background h-9 w-9 border-2">
               <AvatarFallback className="bg-card text-foreground text-xs font-semibold">
@@ -179,27 +259,10 @@ export function App() {
             </Avatar>
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-              Eeshu Yadav
-              <span className="text-muted-foreground inline-flex items-center gap-1 text-[11px] font-normal">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                </span>
-                AI Persona · live
-              </span>
-            </h1>
+            <h1 className="text-sm font-semibold tracking-tight">Eeshu Yadav</h1>
+            <p className="text-muted-foreground text-[11px]">AI Persona · live</p>
           </div>
           <VoiceCall />
-          <a
-            href="https://github.com/Eeshu-Yadav"
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Eeshu's GitHub"
-            className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "size-9 rounded-full")}
-          >
-            <GithubIcon className="h-4 w-4" />
-          </a>
         </header>
 
         {/* Messages */}
@@ -216,18 +279,15 @@ export function App() {
                   </h2>
                   <p className="text-muted-foreground mx-auto max-w-md text-sm leading-relaxed text-pretty">
                     Ask about his experience, projects, and open-source work, or
-                    book an interview on his real calendar. Prefer voice? Hit{" "}
+                    book an interview on his real calendar. Prefer voice? Tap{" "}
                     <span className="text-foreground inline-flex items-center gap-1 font-medium">
                       <Phone className="h-3.5 w-3.5" /> Talk to the agent
-                    </span>{" "}
-                    up top, or call{" "}
-                    <span className="text-foreground font-medium tabular-nums">
-                      +1 270-612-3958
                     </span>
                     .
                   </p>
                 </div>
-                <div className="flex flex-wrap justify-center gap-2">
+                {/* chips on mobile only — desktop has them in the sidebar */}
+                <div className="flex flex-wrap justify-center gap-2 lg:hidden">
                   {SUGGESTIONS.map((s, i) => (
                     <button
                       key={s}
