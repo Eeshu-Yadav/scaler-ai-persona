@@ -26,6 +26,16 @@ function GithubIcon({ className }: { className?: string }) {
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
+// Map a corpus source label to the real URL it came from, so citations are
+// clickable: github/<repo> → my repo, contributions/<owner>/<repo> → that repo,
+// resume → GitHub profile.
+function sourceUrl(src: string): string | null {
+  if (src.startsWith("github/")) return `https://github.com/Eeshu-Yadav/${src.slice(7)}`
+  if (src.startsWith("contributions/")) return `https://github.com/${src.slice(14)}`
+  if (src === "resume") return "https://github.com/Eeshu-Yadav"
+  return null
+}
+
 type Source = { source: string; title: string; score: number }
 type Message = { role: "user" | "assistant"; content: string; sources?: Source[] }
 
@@ -233,15 +243,33 @@ export function App() {
                         <span className="text-muted-foreground/70 text-[10px] uppercase tracking-wide">
                           sources
                         </span>
-                        {[...new Set(m.sources.map((s) => s.source))].map((src) => (
-                          <Badge
-                            key={src}
-                            variant="secondary"
-                            className="text-[10px] font-normal tabular-nums"
-                          >
-                            {src}
-                          </Badge>
-                        ))}
+                        {[...new Set(m.sources.map((s) => s.source))].map((src) => {
+                          const href = sourceUrl(src)
+                          const badge = (
+                            <Badge
+                              variant="secondary"
+                              className={cn(
+                                "text-[10px] font-normal tabular-nums",
+                                href && "hover:bg-primary/20 cursor-pointer transition-colors"
+                              )}
+                            >
+                              {src}
+                            </Badge>
+                          )
+                          return href ? (
+                            <a
+                              key={src}
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={`Open ${src}`}
+                            >
+                              {badge}
+                            </a>
+                          ) : (
+                            <span key={src}>{badge}</span>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
