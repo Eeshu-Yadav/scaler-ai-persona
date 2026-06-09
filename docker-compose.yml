@@ -1,0 +1,33 @@
+# Always-on backend on a DigitalOcean Droplet (no cold starts → fast first
+# response). Caddy terminates HTTPS (auto Let's Encrypt over sslip.io, no domain
+# needed) and reverse-proxies to the Django/gunicorn backend. The frontend stays
+# on Render and points VITE_API_URL at https://<ip>.sslip.io.
+#
+#   export SITE_ADDRESS=<droplet-public-ip>.sslip.io
+#   docker compose up -d --build
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: backend/.env
+    expose:
+      - "8000"
+    restart: always
+
+  caddy:
+    image: caddy:2-alpine
+    command: caddy reverse-proxy --from "${SITE_ADDRESS:?set SITE_ADDRESS=<ip>.sslip.io}" --to backend:8000
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    restart: always
+
+volumes:
+  caddy_data:
+  caddy_config:
