@@ -1,185 +1,103 @@
 # Eeshu Yadav — AI Persona (Scaler AI Engineer Screening)
 
-An AI persona of me that you can **call**, **chat with**, and use to **book a
-real interview** on my calendar — end to end, no human in the loop.
+An AI persona of me you can **call**, **chat with**, and use to **book a real
+interview** — end to end, no human in the loop. RAG-grounded over my real resume
+and live GitHub (repo READMEs, languages, commits, merged PRs) and booking on a
+real Cal.com calendar. No hardcoded answers.
 
-- 📞 **Voice agent (phone):** call **+1 (270) 612-3958**
-- 🎙️ **Voice agent (web):** the **"Talk to the agent"** button on the chat site — browser mic over WebRTC into the same agent, callable instantly from anywhere (no dialing)
+- 📞 **Voice (phone):** **+1 (270) 612-3958**
+- 🎙️ **Voice (web):** the **"Talk to the agent"** button on the chat site — browser mic → same agent over WebRTC (instant, works anywhere)
 - 💬 **Chat:** https://eeshu-persona-chat.onrender.com
-- 📄 **Eval report:** [`evals/report_template.md`](evals/report_template.md) · one-page PDF: [`evals/eval_report.pdf`](evals/eval_report.pdf)
+- 📄 **Eval report:** [one-page PDF](evals/eval_report.pdf) · [details](evals/report_template.md)
+- ⚙️ **API:** https://162.243.231.158.sslip.io/api/health (always-on droplet, no cold starts)
 
-> API: https://eeshu-persona-api.onrender.com/api/health
-
-### Eval results (20-case golden set, deployed backend, Gemini-2.5-Flash judge)
+## Eval results (20-case golden set · deployed backend · Gemini-2.5-Flash judge)
 
 | Metric | Result |
 |---|---|
-| Groundedness rate | **95%** (19/20) |
-| Hallucination rate | **5%** |
+| Groundedness | **95%** (19/20) |
+| Hallucination | **5%** |
 | Retrieval precision / recall | **0.685 / 0.962** |
 | By type | factual 12/12 · unknown 3/3 · adversarial 4/4 · booking 0/1\* |
 
-\*The one miss (`book-1`) is a judge-visibility artifact — the judge sees only the
-answer text, not that `get_availability` fired, so it assumed the listed slots
-were invented. Booking is confirmed working (a real Cal.com booking was created).
-Reproduce: `python evals/run_chat_evals.py --api <backend-url>`.
-
-### A note on the phone number (and the web-voice option)
-
-The dialable number is a **US (+1) Twilio number**, which is the standard, expected
-setup (Twilio is the assignment's first stack hint) and routes PSTN → Twilio Elastic
-SIP Trunk → LiveKit Cloud SIP → the agent. **Why not a +91 Indian number?** Indian DIDs
-are TRAI-regulated — every provider (Twilio, Plivo, Exotel, Knowlarity, Telnyx) requires
-KYC (ID/address proof) and 1–3 day approval, and the number carries a monthly rental;
-there is no instant or free Indian programmable number. Calling the US number from India
-therefore needs international dialing enabled (or a VoIP app like Skype).
-
-To make the voice agent **trivially reachable from India — free, instant, no KYC** — the
-chat site includes a **web-voice button**: it mints a LiveKit token, dispatches the same
-agent into a room, and connects the browser mic over WebRTC. Same Deepgram → Gemini →
-ElevenLabs pipeline, same RAG and Cal.com booking, just without the PSTN leg. So the
-project satisfies the literal "phone number we can call" requirement *and* is instantly
-demoable from any device.
-
-Both surfaces are RAG-grounded over my **real resume** and **live GitHub data**
-(repo READMEs, languages, commit history, merged PRs across OpenWISP/KMesh),
-and book through the **real Cal.com calendar** — no hardcoded answers.
+\*`book-1` is a judge-visibility artifact (the judge sees only answer text, not
+that `get_availability` fired). Booking is confirmed working — a real Cal.com
+booking was created. Reproduce: `python evals/run_chat_evals.py --api <url>`.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    subgraph Voice["Part A — Voice"]
-        PSTN[Caller dials Twilio number] --> SIP[Twilio Elastic SIP Trunk]
-        SIP --> LK[LiveKit Cloud SIP + room]
-        LK <--> AGENT["LiveKit Agent worker (Python)
+    subgraph Voice["Part A — Voice (LiveKit Cloud)"]
+        PSTN[Twilio number] --> SIP[Twilio SIP trunk] --> LK[LiveKit SIP]
+        WEB[Web mic / WebRTC] --> LK
+        LK <--> AGENT["Agent worker
         Deepgram Nova-3 STT
-        gemini-2.5-flash (streaming)
-        ElevenLabs Flash v2.5 TTS
-        ↳ fallback: Deepgram Aura-2
-        Silero VAD + EOU turn detection
-        preemptive generation (barge-in safe)"]
+        Gemini 2.5 Flash
+        ElevenLabs Flash TTS (↳ Deepgram Aura fallback)
+        Silero VAD + EOU turn detection · barge-in"]
     end
-
     subgraph Chat["Part B — Chat"]
-        UI["React (Vite) chat UI
-        Vercel"] -- SSE --> DRF["Django REST backend
-        /api/chat · /api/slots · /api/book
-        gemini-2.5-flash tool loop"]
+        UI["React/Vite/shadcn (Render)"] -- SSE --> API["Django REST (DO droplet)
+        /api/chat · /slots · /book · /voice/token"]
     end
-
     subgraph Shared["Shared core (written once)"]
-        RAG["shared/rag.py
-        in-memory vector store
-        (numpy cosine, <5ms)"]
-        CAL["shared/calcom.py
-        Cal.com v2 API"]
-        PERSONA["shared/persona.py
-        prompts + grounding rules"]
+        RAG["rag.py — in-memory numpy cosine (<5ms)"]
+        CAL["calcom.py"]
+        P["persona.py — prompts + grounding"]
     end
-
-    AGENT -- "in-process tools" --> RAG & CAL & PERSONA
-    DRF -- "tool calls" --> RAG & CAL & PERSONA
-    CAL --> CALCOM[("Cal.com → Google Calendar
-    confirmed booking + email")]
-
-    ING["ingestion/build_corpus.py
-    resume.md + GitHub API
-    (READMEs, commits, merged PRs)
-    → gemini-embedding-001"] --> CORPUS[("data/corpus.json")]
-    CORPUS --> RAG
+    AGENT & API --> RAG & CAL & P
+    CAL --> CALCOM[("Cal.com → Google Calendar")]
+    ING["build_corpus.py — resume + GitHub → gemini-embedding-001"] --> CORPUS[("data/corpus.json")] --> RAG
 ```
 
-**Design decisions**
-
-| Decision | Why |
-|---|---|
-| In-memory vector store (precomputed embeddings, numpy cosine) | Corpus is small (~200-400 chunks). <5ms retrieval, zero infra/cost; voice agent does RAG **in-process** — no HTTP hop in the latency budget. Tradeoff: redeploy to refresh corpus. |
-| Gemini-only stack (`gemini-2.5-flash` for voice & chat, `gemini-embedding-001` for RAG, `gemini-2.5-pro` as eval judge) | One provider, one key, generous free tier; flash gives the first-token speed the voice budget needs. Gemini's OpenAI-compatible endpoint means the `openai` client library is used purely as HTTP transport. |
-| ElevenLabs Flash v2.5 + Deepgram Aura-2 fallback (`FallbackAdapter`) | Flash ≈75ms TTFB; the fallback survives ElevenLabs free-tier quota exhaustion during the 7-day live window. |
-| Preemptive generation + Silero VAD + EOU model | LLM/TTS start on interim transcripts → most LLM latency hides behind turn detection; barge-in interrupts cleanly. |
-| All specific facts via `search_background` tool | The persona summary holds only headline identity; every detailed claim must be retrieved → auditable, no hardcoded strings. |
-| Stateless chat (client sends history) | No DB/sessions; trivially horizontally scalable; nothing to leak. |
+**Key decisions**
+- **In-memory vector store** (precomputed embeddings, numpy cosine): ~120-chunk corpus → <5ms retrieval, zero infra, RAG runs in-process in the voice agent (no HTTP hop in the latency budget). Cost: redeploy to refresh.
+- **Gemini-only** via its OpenAI-compatible endpoint (the `openai` client is used purely as HTTP transport). Free tier; resilience from **round-robin key rotation × model fallback** (`flash → flash-lite → 2.0-flash`), skipping any 429/403/5xx key.
+- **ElevenLabs Flash + Deepgram Aura fallback** (`FallbackAdapter`) so TTS survives quota exhaustion.
+- **Preemptive generation + VAD + EOU** → first audio before end-of-turn; barge-in safe (targets the <2s voice first-response).
+- **Every specific claim via `search_background`** → auditable, no hardcoded facts.
+- **Stateless chat** (client sends history) → nothing to leak, trivially scalable.
 
 ## Repo layout
 
 ```
-shared/        rag.py · calcom.py · persona.py   (used by BOTH voice and chat)
-backend/       Django + DRF: SSE chat, slots, booking
+shared/        rag.py · calcom.py · persona.py   (used by voice AND chat)
+backend/       Django + DRF: SSE chat, slots, booking, voice token
 voice-agent/   LiveKit Agents worker
-frontend/      React (Vite) chat UI
+frontend/      React (Vite + shadcn) chat UI + web-voice button
 ingestion/     resume + GitHub → data/corpus.json
-evals/         golden Q&A · judge-model eval runner · latency benchmarks · call log
+evals/         golden Q&A · judge eval runner · report
 docs/          telephony-setup.md (Twilio ↔ LiveKit SIP)
+docker-compose.yml   always-on backend deploy (Caddy auto-HTTPS via sslip.io)
 ```
 
 ## Setup
 
-### 0. Prereqs
-Accounts/keys: Google AI Studio (Gemini), Deepgram, ElevenLabs, LiveKit Cloud, Twilio, Cal.com
-(event type "Interview 30min" connected to Google Calendar). Copy each
-`.env.example` → `.env` and fill.
-
-### 1. Build the RAG corpus
 ```bash
-python -m venv .venv && source .venv/bin/activate
+# 1. Corpus  (copy each .env.example → .env and fill first)
 pip install -r backend/requirements.txt
-GITHUB_TOKEN=ghp_... GEMINI_API_KEY=... python ingestion/build_corpus.py
+GITHUB_TOKEN=... GEMINI_API_KEY=... python ingestion/build_corpus.py
+
+# 2. Backend            cd backend && python manage.py runserver
+# 3. Frontend           cd frontend && npm install && npm run dev
+# 4. Voice agent        cd voice-agent && python agent.py download-files && python agent.py dev
+# 5. Evals              python evals/run_chat_evals.py --api http://localhost:8000
 ```
 
-### 2. Backend (chat brain)
-```bash
-cd backend && pip install -r requirements.txt
-python manage.py runserver   # http://localhost:8000/api/health
-```
-Deploy: `docker build -f backend/Dockerfile .` (context = repo root) → Render/Railway.
+**Deploy:** backend → any Docker host (`SITE_ADDRESS=<ip>.sslip.io docker compose up -d --build` gives an always-on HTTPS API with no domain); frontend → Render/Vercel static with `VITE_API_URL=<backend>`; voice agent → LiveKit Cloud (`lk agent deploy`); phone → [`docs/telephony-setup.md`](docs/telephony-setup.md).
 
-### 3. Frontend
-```bash
-cd frontend && npm install && npm run dev    # http://localhost:5173
-```
-Deploy: Vercel, root dir `frontend/`, env `VITE_API_URL=<backend url>`.
+## Cost
 
-### 4. Voice agent
-```bash
-cd voice-agent && pip install -r requirements.txt
-python agent.py download-files   # VAD + turn-detection models
-python agent.py console          # local mic test
-python agent.py dev              # connect to LiveKit Cloud
-```
-Phone number: follow [`docs/telephony-setup.md`](docs/telephony-setup.md)
-(Twilio number → SIP trunk → LiveKit dispatch rule → deploy worker).
-
-### 5. Evals
-```bash
-python evals/run_chat_evals.py --api http://localhost:8000
-python evals/voice_component_latency.py --runs 10
-# live-call protocol: evals/voice_test_log.md
-```
-
-## Cost breakdown
-
-**Per voice call (per minute):**
-
-| Component | Cost/min |
+| Per 5-min voice call | Per chat session |
 |---|---|
-| Twilio inbound (US local) | $0.0085 |
-| LiveKit Cloud | ~$0.01 (free tier covers eval volume) |
-| Deepgram Nova-3 STT | ~$0.0058 |
-| gemini-2.5-flash (~2k in / 300 out per turn, ~6 turns) | $0 free tier (paid: ~$0.008/call) |
-| ElevenLabs Flash (~400 chars/min) | ~$0.02 (creator tier) |
-| **Total** | **≈ $0.045/min → ~$0.22 per 5-min call** |
+| Twilio ~$0.04 + Deepgram ~$0.03 + ElevenLabs ~$0.10 + Gemini $0 free (paid ~$0.04) ≈ **$0.20** | ~28k tokens = **$0** free tier (paid ~$0.015) |
 
-**Per chat session** (~8 turns, gemini-2.5-flash, ~3 RAG calls):
-~25k input + 3k output tokens = **$0 on free tier** (paid tier: ~$0.015/session; embeddings negligible).
-Hosting: Vercel free, Render free/starter, corpus build one-time ≈ $0.01.
+Hosting: DO droplet (backend, always-on) + Render static (frontend) + LiveKit Cloud (agent).
 
-## Honesty & safety design
+## Honesty & safety
 
-- Grounding rules force `search_background` before any specific claim; empty
-  retrieval → explicit "I don't have that" (`NO_RESULTS` sentinel).
-- Prompt-injection handling: instructions arriving in user content/retrieved
-  docs are treated as content, never directives; tested in `evals/golden_qa.json`
-  (adv-1…adv-4).
-- The persona distinguishes my **own projects** from **OSS contributions**.
-- Bookings only confirmed when the Cal.com API returns success.
+- `search_background` required before any specific claim; empty retrieval → explicit "I don't have that".
+- Prompt-injection handling: instructions in user/retrieved text are treated as content, never directives (tested in `evals/golden_qa.json`, adv-1…4).
+- Distinguishes my own projects from OSS contributions; bookings confirmed only on Cal.com API success.
+- US number rationale: Indian (+91) DIDs are TRAI-regulated (KYC + days + rental), so there's no instant free Indian number — hence a standard US Twilio number, plus the free, instant web-voice button for India reachability.
