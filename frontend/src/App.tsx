@@ -79,58 +79,87 @@ export function App() {
     const history: Message[] = [...messages, { role: "user", content }]
     setMessages([...history, { role: "assistant", content: "", sources: [] }])
 
-    try {
-      const res = await fetch(`${API_URL}/api/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: history.map(({ role, content }) => ({ role, content })),
-        }),
-      })
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+    const body = JSON.stringify({
+      messages: history.map(({ role, content }) => ({ role, content })),
+    })
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    const MAX_ATTEMPTS = 3
 
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ""
-
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const events = buffer.split("\n\n")
-        buffer = events.pop() ?? ""
-        for (const line of events) {
-          if (!line.startsWith("data: ")) continue
-          let event: { type: string; [k: string]: unknown }
-          try {
-            event = JSON.parse(line.slice(6))
-          } catch {
-            continue
-          }
-          if (event.type === "delta") {
-            setToolStatus(null)
-            patchLast((m) => ({ ...m, content: m.content + (event.text as string) }))
-          } else if (event.type === "tool") {
-            setToolStatus(TOOL_LABELS[event.name as string] ?? `Running ${event.name}…`)
-          } else if (event.type === "sources") {
-            patchLast((m) => ({ ...m, sources: event.items as Source[] }))
-          } else if (event.type === "error") {
-            patchLast((m) => ({
-              ...m,
-              content:
-                m.content +
-                `\n\n*Something went wrong (${event.message}). Please try again.*`,
-            }))
+    // Returns "ok" | "retry" | "fatal". Streams tokens into the last message.
+    async function attempt(): Promise<"ok" | "retry" | "fatal"> {
+      let received = 0 // deltas rendered this attempt — retrying after >0 would duplicate
+      try {
+        const res = await fetch(`${API_URL}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        })
+        if (!res.ok || !res.body) {
+          // Cold start / overload / rate limit are transient → retry from scratch.
+          if ([429, 502, 503, 504].includes(res.status)) return "retry"
+          throw new Error(`HTTP ${res.status}`)
+        }
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ""
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const events = buffer.split("\n\n")
+          buffer = events.pop() ?? ""
+          for (const line of events) {
+            if (!line.startsWith("data: ")) continue
+            let event: { type: string; [k: string]: unknown }
+            try {
+              event = JSON.parse(line.slice(6))
+            } catch {
+              continue
+            }
+            if (event.type === "delta") {
+              received++
+              setToolStatus(null)
+              patchLast((m) => ({ ...m, content: m.content + (event.text as string) }))
+            } else if (event.type === "tool") {
+              setToolStatus(TOOL_LABELS[event.name as string] ?? `Running ${event.name}…`)
+            } else if (event.type === "sources") {
+              patchLast((m) => ({ ...m, sources: event.items as Source[] }))
+            } else if (event.type === "error") {
+              patchLast((m) => ({
+                ...m,
+                content:
+                  m.content +
+                  `\n\n*Something went wrong (${event.message}). Please try again.*`,
+              }))
+            }
           }
         }
+        return "ok"
+      } catch {
+        // Network-level failure (Failed to fetch / ERR_NETWORK_CHANGED / abort).
+        // Safe to silently retry only if nothing was shown yet.
+        return received === 0 ? "retry" : "fatal"
       }
-    } catch (err) {
-      patchLast((m) => ({
-        ...m,
-        content:
-          m.content ||
-          `*Couldn't reach the backend (${err instanceof Error ? err.message : String(err)}).*`,
-      }))
+    }
+
+    try {
+      for (let i = 1; i <= MAX_ATTEMPTS; i++) {
+        const result = await attempt()
+        if (result === "ok") return
+        if (result === "fatal" || i === MAX_ATTEMPTS) {
+          patchLast((m) => ({
+            ...m,
+            content:
+              m.content ||
+              "*Couldn't reach the backend after a few tries — please send that again.*",
+          }))
+          return
+        }
+        // transient: clear any partial state and back off briefly before retrying
+        patchLast((m) => ({ ...m, content: "", sources: [] }))
+        setToolStatus("Reconnecting…")
+        await sleep(800 * i)
+      }
     } finally {
       setBusy(false)
       setToolStatus(null)
